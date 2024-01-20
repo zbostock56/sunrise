@@ -1,46 +1,73 @@
-; Tell the assembler to start all memory calculations at 0x7C00
-org 0x7C00
-
 ; 16 bit output from assembler
 bits 16
 
 %define ENDL 0x0D, 0x0A
 
-;
-; ---------- FAT12 Headers ----------
-;
-jmp short start 
-nop
+%define fat12 1
+%define fat16 2
+%define fat32 3
+%define ext2
 
-; BIOS Parameter Block
-bpb_oem:                      db 'MSWIN4.1'
-bpb_bytes_per_sector:         dw 512
-bpb_sectors_per_cluster:      db 1
-bpb_reserved_sectors:         dw 1
-bpb_fat_count:                db 2
-bpb_dir_entries_count:        dw 0E0h
-bpb_total_sectors:            dw 2880  ; 2880 * 512 = 1.44 MB
-bpb_media_descriptor:         db 0F0h  ; 0xF0 = 3.5" floppy
-bpb_sectors_per_fat:          dw 9
-bpb_sectors_per_track:        dw 18
-bpb_heads:                    dw 2
-bpb_hidden_sectors:           dd 0
-bpb_large_sector_count:       dd 0
+;
+; ---------- FAT Headers ----------
+;
 
-; Extended Boot Record
-ebr_drive_number:             db 0
-                              db 0               ; Implicitly reserved byte
-ebr_signiture:                db 29h             ; Serial number, value doesn't matter
-ebr_volume_id:                db 01h, 02h, 03h, 04h
-ebr_volume_label:             db 'sunrise_bl '   ; Must be 11 bytes
-ebr_system_id:                db 'FAT12   '      ; Must be 8 bytes 
+section .fsjump
+  jmp short start 
+  nop
+
+section .fsheaders
+
+%if (FILESYSTEM == fat12) || (FILESYSTEM == fat16) || (FILESYSTEM == fat32)
+  ; BIOS Parameter Block
+  bpb_oem:                      db '12345678'
+  bpb_bytes_per_sector:         dw 512
+  bpb_sectors_per_cluster:      db 1
+  bpb_reserved_sectors:         dw 1
+  bpb_fat_count:                db 2
+  bpb_dir_entries_count:        dw 0E0h
+  bpb_total_sectors:            dw 2880  ; 2880 * 512 = 1.44 MB
+  bpb_media_descriptor:         db 0F0h  ; 0xF0 = 3.5" floppy
+  bpb_sectors_per_fat:          dw 9
+  bpb_sectors_per_track:        dw 18
+  bpb_heads:                    dw 2
+  bpb_hidden_sectors:           dd 0
+  bpb_large_sector_count:       dd 0
+
+  %if (FILESYSTEM == fat32)
+    fat32_sectors_per_fat:      dd 0
+    fat32_flags:                dd 0
+    fat32_fat_version_number:   dw 0
+    fat32_rootdir_cluster:      dd 0
+    fat32_fsinfo_sector:        dw 0
+    fat32_backup_boot_sector:   dw 0
+    fat32_reserved:             times 12 db 0
+  %endif
+
+  ; Extended Boot Record
+  ebr_drive_number:             db 0
+                                db 0               ; Implicitly reserved byte
+  ebr_signiture:                db 29h             ; Serial number, value doesn't matter
+  ebr_volume_id:                db 01h, 02h, 03h, 04h
+  ebr_volume_label:             db 'sunrise_bl '   ; Must be 11 bytes
+  ebr_system_id:                db 'FAT12   '      ; Must be 8 bytes 
+%endif
 ; ------------------------------
 
 
 ;
 ; Entry point from BIOS
 ;
+section .entry
 start:
+  ; Move partition entry from MBR to a different location so we don't
+  ; overwrite it
+  mov ax, PARTITION_ENTRY_OFFSET
+  mov es, ax
+  mov di, PARTITION_ENTRY_OFFSET
+  mov cx, 16
+  rep movsb
+
   ; Set up data segments
   mov ax, 0
   mov ds, ax
@@ -62,137 +89,64 @@ start:
   ; disk image
   mov [ebr_drive_number], dl
 
-  push es
-  mov ah, 08h
+  ; Check if extensions present
+  mov ah, 0x41
+  mov bx, 0x55AA
+  stc
   int 13h
-  jc floppy_error
-  pop es
 
-  and cl, 0x3F                                   ; Remove top two bits
-  xor ch, ch
-  mov [bpb_sectors_per_track], cx                ; Sector count
+  jc .no_disk_extensions
+  cmp bx, 0xAA55
+  jne .no_disk_extensions
 
-  inc dh
-  mov [bpb_heads], dh                            ; Head count
+  ; Extensions are present
+  mov byte [have_extensions], 1
+  jmp .after_disk_extensions_check
 
-  ; Read FAT root directory
-  ; LBA Root directory location (in LBA) = reserved + fats * sectors_per_fat
-  mov ax, [bpb_sectors_per_fat]
-  mov bl, [bpb_fat_count]
-  xor bh, bh
-  mul bx                                        ; ax = (fats * sectors_per_fat)
-  add ax, [bpb_reserved_sectors]                ; ax = LBA of root directory
-  push ax
+.no_disk_extensions:
+  mov byte [have_extensions], 0
+.after_disk_extensions_check:
+  ; Load stage2.bin
+  mov si, stage2_location
 
-  ; Size of root directory = (32 * number_of_entries) / bytes_per_sector
-  mov ax, [bpb_dir_entries_count]
-  shl ax, 5                                     ; ax *= 32
-  xor dx, dx                                    ; dx = 0
-  div word [bpb_bytes_per_sector]               ; number of sectors to be read
+  mov ax, STAGE2_LOAD_SEGMENT
+  mov es, ax
 
-  test dx, dx                                   ; if (dx != 0) => Add 1
-  jz .root_dir
-  inc ax                                        ; in this case, the final sector is only partially
-                                                ; filled with entries, to mitigate this, add one
-                                                ; to the number of sectors to read in order to get
-                                                ; all data and not overwrite things in memory
-
-.root_dir:
-  mov cl, al                                    ; cl = number of sectors to read = size of root dir
-  pop ax                                        ; ax = LBA of root dir
-  mov dl, [ebr_drive_number]                    ; dl = drive number (already saved from earlier)
-  mov bx, buffer                                ; es:bx = buffer
-  call disk_read
-
-  ; Find stage2.bin
-  xor bx, bx                                    ; Holds how many entries have been searched
-  mov di, buffer                                ; File name is first field in structure, therefore
-                                                ; di = file name
-
-.search_stage2:
-  mov si, stage2_bin_fn
-  mov cx, 11
-  push di
-  repe cmpsb
-  pop di
-  je .found_stage2
-
-  add di, 32
-  inc bx
-  cmp bx, [bpb_dir_entries_count]
-  jl .search_stage2
-
-  ; stage2 binary was not found
-  jmp stage2_not_found
-
-.found_stage2:
-  ; di should still point to directory entry structure
-  mov ax, [di + 26]                             ; Lower first cluster field has offset 26
-  mov [stage2_cluster], ax
-
-  ; load FAT (file allocation table) from disk into memory
-  mov ax, [bpb_reserved_sectors]
-  mov bx, buffer
-  mov cl, [bpb_sectors_per_fat]
-  mov dl, [ebr_drive_number]
-  call disk_read
-
-  ; read the stage2 binary and process FAT chain
   mov bx, STAGE2_LOAD_SEGMENT
-  mov es, bx
-  mov bx, STAGE2_LOAD_OFFSET
 
-.load_stage2_loop:
-  ; Read next cluster
-  mov ax, [stage2_cluster]
-  add ax, 31
+.loop:
+  mov eax, [si]
+  add si, 4
+  mov cl, [si]
+  inc si
 
-  mov cl, 1
-  mov dl, [ebr_drive_number]
+  cmp eax, 0
+  je .read_finish
+
   call disk_read
 
-  add bx, [bpb_bytes_per_sector]
+  xor ch, ch
+  shl cx, 5
+  mov di, es
+  mov di, cx
+  mov es, di
 
-  ; Compute location of next cluster
-  mov ax, [stage2_cluster]
-  mov cx, 3
-  mul cx
-  mov cx, 2
-  div cx                                         ; ax = index entry in FAT, dx = cluster mod 2
-
-  mov si, buffer
-  add si, ax
-  mov ax, [ds:si]                                ; read entry from FAT table at index ax
-
-  or dx, dx
-  jz .even
-
-.odd:
-  shr ax, 4
-  jmp .next_cluster_after
-
-.even:
-  and ax, 0x0FFF
-
-.next_cluster_after:
-  cmp ax, 0x0FF8
-  jae .read_finish
-
-  mov [stage2_cluster], ax
-  jmp .load_stage2_loop
+  jmp .loop
 
 .read_finish:
-  ; jump to stage2 bootloader
-  mov dl, [ebr_drive_number]                     ; boot device in dl
+  ; Jump to stage2.bin
+  mov dl, [ebr_drive_number]
+  mov si, PARTITION_ENTRY_OFFSET
+  mov di, PARTITION_ENTRY_SEGMENT
 
-  mov ax, STAGE2_LOAD_SEGMENT                    ; set segment registers
+  mov ax, STAGE2_LOAD_SEGMENT
   mov ds, ax
   mov es, ax
 
-  ; far jump to stage2 bootloader
   jmp STAGE2_LOAD_SEGMENT:STAGE2_LOAD_OFFSET
 
-  jmp wait_key_and_reboot                        ; should never happen
+  jmp wait_key_and_reboot
+
   cli
   hlt
 ;
@@ -200,6 +154,7 @@ start:
 ;
 
 
+section .text
 ;
 ; Helper Routines
 ;
@@ -281,32 +236,51 @@ lba_to_chs:
 ;   - es:bx: Location to store the data read
 
 disk_read:
-  push ax
+  push eax
   push bx
   push cx
   push dx
   push di
 
-  push cx                      ; Temporarily save cl (number of sectors to read)
-  call lba_to_chs
-  pop ax                       ; al = number of sectors to read
+
+  cmp byte [have_extensions], 1
+  jne .no_disk_extensions
+
+  ; With extensions
+  mov [extensions_dap.lba_to_chs], eax
+  mov [extensions_dap.segment], es
+  mov [extensions_dap.offset], bx
+  mov [extensions_dap.count], cl
+
+  mov ah, 0x42
+  mov si, extensions_dap
+  mov di, 3
+  jmp .retry
+
+.no_disk_extensions:
+  push cx                              ; temporarily save cl (number of sectors to read)
+  call lba_to_chs                      ; compute chs
+  pop ax                               ; al = number of sectors to read
 
   mov ah, 02h
-  mov di, 3                    ; Retry count (floppies are unreliable)
+  mov di, 3                            ; retry count
 
-.loop:
-  pusha                        ; Not sure what registers BIOS interrupt will use
-  stc                          ; Set carry flag (some BIOS's don't do it)
-  int 13h 
-  jnc .success                 ; If carry flag is cleared, operation successful
-  popa 
-  call disk_reset              ; Reset the floppy controller
-  dec di 
-  test di, di                  ; Test loop condition
-  jnz .loop
+.retry:
+  pusha                                ; save all registers, can;t be certain what the BIOS changes
+  stc
+  int 13h
+  jnc .success
+
+  ; read failed, reset the disk
+  popa
+  call disk_reset
+
+  dec di
+  test di, di 
+  jnz .retry
 
 .fail:
-  ; All booting attempts failed
+  ; All attempts are exhausted
   jmp floppy_error
 
 .success:
@@ -315,22 +289,25 @@ disk_read:
   pop dx
   pop cx
   pop bx
-  pop ax
+  pop eax
   ret
 ; -------------------------------
 
-; ---------- disk_reset -----------
-; Input:
-;   - dl: drive_number
-disk_reset: 
-  pusha
-  mov ah, 0
-  stc
-  int 13h
-  jc floppy_error
-  popa
-  ret
-; --------------------------------
+; --------- disk_reset ----------
+;
+; Resets disk controller
+; Parameters:
+;   dl: drive number
+;
+disk_reset:
+    pusha
+    mov ah, 0
+    stc
+    int 13h
+    jc floppy_error
+    popa
+    ret
+; -------------------------------
 
 
 ;
@@ -351,30 +328,32 @@ stage2_not_found:
   call print
   jmp wait_key_and_reboot
 
-halt:
-  mov si, halting_msg
-  call print
-  cli
-  hlt
 
+section .rodata
 ; Message String Constants
-read_failed_msg:             db 'Floppy read error!', ENDL, 0
+read_failed_msg:             db 'Read error!', ENDL, 0
 stage2_not_found_msg:        db 'STAGE2.BIN not found!', ENDL, 0
-halting_msg:                 db 'Halting...', ENDL, 0
-
-; General Constants
 stage2_bin_fn:               db 'STAGE2  BIN'
-stage2_cluster:              dw 0
 
-; equ = no memory will be allocated for the constant
-; Same as preprocessor define in C
+section .data
+  have_extensions:           db 0
+  extensions_dap:
+    .size                    db 10h
+                             db 0
+    .count                   dw 0
+    .offset                  dw 0
+    .segment                 dw 0
+    .lba_to_chs              dq 0
+
 STAGE2_LOAD_SEGMENT          equ 0x0
 STAGE2_LOAD_OFFSET           equ 0x500
 
-; Tell nasm to put 0xAA55 at the end of the file
-; to indicate this is the boot sector
-times 510-($-$$) db 0
-dw 0AA55h
+PARTITION_ENTRY_SEGMENT      equ 0x2000
+PARTITION_ENTRY_OFFSET       equ 0x0
 
+section .data
+  global stage2_location
+  stage2_location:           times 30 db 0
 
+section .bss
 buffer:

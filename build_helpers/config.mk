@@ -1,3 +1,5 @@
+MAKE_DISK_SIZE = 16777216 # 16MB
+
 # Host System
 export CFLAGS = -std=c99 -g
 export ASMFLAGS =
@@ -18,13 +20,16 @@ export TARGET_CXX = $(TARGET)-g++
 export TARGET_LD = $(TARGET)-gcc
 export TARGET_LINKFLAGS =
 export TARGET_LIBS =
+export TARGET_FS = -DFILESYSTEM=fat32
+export IMG_FS = 32
 
 # Naming
 export IMG=main_floppy.img
+export DISK=main_disk.raw
 export KERNEL=kernel.bin
 export STAGE1=stage1.bin
 export STAGE2=stage2.bin
-export SRC_DIR=src
+export SRC_DIR=$(abspath src)
 export STAGE1_DIR=stage1
 export STAGE2_DIR=stage2
 export KERNEL_DIR= $(abspath kernel)

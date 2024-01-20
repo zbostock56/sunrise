@@ -4,17 +4,18 @@ section .entry
 
 extern __bss_start
 extern __end
+extern _init
 
 extern start
 global entry
-
-%define ENDL 0x0D, 0x0A
 
 entry:
     cli
 
     ; save boot drive
     mov [g_boot_drive], dl
+    mov [g_boot_partition_off], si
+    mov [g_boot_partition_seg], di
 
     ; setup stack
     mov ax, ds
@@ -51,8 +52,15 @@ entry:
     cld
     rep stosb
 
+    ; call global constructors
+    call _init
 
     ; expect boot drive in dl, send as argument to cstart function
+    mov dx, [g_boot_partition_seg]
+    shl edx, 16
+    mov dx, [g_boot_partition_off]
+    push edx
+
     xor edx, edx
     mov dl, [g_boot_drive]
     push edx
@@ -167,43 +175,6 @@ g_GDT:
 g_GDTDesc: dw g_GDTDesc - g_GDT - 1    ; limit = size of GDT
            dd g_GDT                    ; address of GDT
 
-g_boot_drive: db 0
-
-;
-; Helper Routines
-;
-
-; ---------- print ----------
-; Output character(s) to screen
-; Input: ds:si
-
-print:
-  ;bits 32
-  ;x86_enter_real_mode
-  bits 16
-  push si
-  push ax
-  push bx
-
-.loop:
-  lodsb         ; Loads character
-  or al, al     ; Is the character null?
-  jz .endloop
-
-  mov ah, 0x0e  ; Call bios interrupt
-  mov bh, 0     ; Set page number to zero
-  int 0x10
-
-  jmp .loop
-
-.endloop:
-  pop bx
-  pop ax
-  pop si
-  
-  ;x86_enter_protected_mode
-  ;bits 32
-  ret
-; --------------------------
-
-hit_msg:        db 'Hit!', ENDL, 0
+g_boot_drive:           db 0
+g_boot_partition_off:   dw 0
+g_boot_partition_seg:   dw 0

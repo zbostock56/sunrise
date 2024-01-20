@@ -14,14 +14,23 @@ all: stage2
 
 stage2: $(BUILD_DIR)/$(STAGE2)
 
+#
+#	Link .obj files from stage2
+#
 $(BUILD_DIR)/$(STAGE2): $(OBJ_ASM) $(OBJ_C)
 	@$(TARGET_LD) $(TARGET_LINKFLAGS) -Wl,-Map=$(BUILD_DIR)/stage2.map -o $@ $^ $(TARGET_LIBS)
 	@echo "--> Created:   stage2.bin"
 
+#
+#	Build .c files from stage2
+#
 $(BUILD_DIR)/$(STAGE2_DIR)/c/%.obj: %.c
 	@$(TARGET_CC) $(TARGET_CFLAGS) -I $(abspath ./include) -c -o $@ $<
 	@echo "--> Compiled: " $<
 
+#
+#	Build .asm files from stage2
+#
 $(BUILD_DIR)/$(STAGE2_DIR)/asm/%.obj: %.asm
 	@$(TARGET_ASM) $(TARGET_ASMFLAGS) -o $@ $<
 	@echo "--> Assembled: " $<

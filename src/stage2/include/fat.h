@@ -1,6 +1,7 @@
 #pragma once
 
 #include "disk.h"
+#include "mbr.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -8,6 +9,28 @@
 #define MAX_PATH_SIZE           (256)
 #define MAX_FILE_HANDLES        (10)
 #define ROOT_DIRECTORY_HANDLE   (-1)
+#define FAT_CACHE_SIZE          (5)
+
+typedef struct {
+    /* Extended Boot Record for non-FAT32 */
+    uint8_t drive_number;
+    uint8_t _reserved;
+    uint8_t signiture;
+    uint32_t volume_id;
+    uint8_t volume_lable[11];
+    uint8_t system_id[8];
+} __attribute__((packed)) FAT_EXTENDED_BOOT_RECORD;
+
+typedef struct {
+    /* Extended Boot Record for FAT32 */
+    uint32_t sectors_per_fat;
+    uint16_t flags;
+    uint16_t fat_version;
+    uint32_t root_directory_cluster;
+    uint16_t fs_info_sector;
+    uint16_t backup_boot_sector;
+    FAT_EXTENDED_BOOT_RECORD EBR;
+}__attribute__((packed)) FAT32_EXTENDED_BOOT_RECORD;
 
 typedef struct {
     uint8_t name[11];
@@ -22,14 +45,14 @@ typedef struct {
     uint16_t modified_date;
     uint16_t first_cluster_low;
     uint32_t size;
-} __attribute__((packed)) FAT_directory_entry;
+} __attribute__((packed)) FAT_DIRECTORY_ENTRY;
 
 typedef struct {
     int handle;
     bool is_directory;
     uint32_t position;
     uint32_t size;
-} FAT_file;
+} FAT_FILE;
 
 enum FAT_Attributes {
     FAT_ATTRIBUTE_READ_ONLY         = 0x01,
@@ -59,34 +82,35 @@ typedef struct {
     uint32_t large_sector_count;
 
     /* Extended Boot Record */
-    uint8_t drive_number;
-    uint8_t _reserved;
-    uint8_t signiture;
-    uint32_t volume_id;
-    uint8_t volume_label[11];
-    uint8_t system_id[8];
-} __attribute__((packed)) FAT_boot_sector;
+    union {
+        FAT_EXTENDED_BOOT_RECORD EBR_FAT1216;
+        FAT32_EXTENDED_BOOT_RECORD EBR_FAT32;
+    };
+} __attribute__((packed)) FAT_BOOT_SECTOR;
 
 typedef struct {
     uint8_t buffer[SECTOR_SIZE];
-    FAT_file public;
+    FAT_FILE public;
     bool opened;
     uint32_t first_cluster;
     uint32_t current_cluster;
     uint32_t current_sector_in_cluster;
-} FAT_file_data;
+} FAT_FILE_DATA;
 
 typedef struct {
     union {
-        FAT_boot_sector boot_sector;
+        FAT_BOOT_SECTOR boot_sector;
         uint8_t boot_sector_bytes[SECTOR_SIZE];
     } BS;
-    FAT_file_data root_directory;
-    FAT_file_data opened_files[MAX_FILE_HANDLES];
-} FAT_data;
+    FAT_FILE_DATA root_directory;
+    FAT_FILE_DATA opened_files[MAX_FILE_HANDLES];
+    uint8_t fat_cache[FAT_CACHE_SIZE * SECTOR_SIZE];
+    uint32_t fat_cache_position;
+} FAT_DATA;
 
-bool FAT_init(DISK *);
-FAT_file *FAT_open(DISK *, const char *);
-uint32_t FAT_read(DISK *, FAT_file *, uint32_t, void *);
-bool FAT_read_entry(DISK *, FAT_file *, FAT_directory_entry *);
-void FAT_close(FAT_file *);
+bool FAT_init(PARTITION *);
+FAT_FILE *FAT_open(PARTITION *, const char *);
+uint32_t FAT_read(PARTITION *, FAT_FILE *, uint32_t, void *);
+bool FAT_read_entry(PARTITION *, FAT_FILE *, FAT_DIRECTORY_ENTRY *);
+void FAT_close(FAT_FILE *);
+uint32_t FAT_cluster_to_lba(uint32_t);
