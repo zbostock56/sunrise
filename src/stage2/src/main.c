@@ -5,6 +5,7 @@
 #include "../include/fat.h"
 #include "../include/memdefs.h"
 #include "../include/memory.h"
+#include "../include/elf.h"
 
 
 uint8_t *kernel_load_buffer = (uint8_t *) MEMORY_LOAD_KERNEL;
@@ -33,18 +34,14 @@ void __attribute__((cdecl)) start(uint16_t boot_drive, void *partition) {
         goto infinite_loop;
     }
     /* Load kernel into memory */
-    FAT_FILE *fd = FAT_open(&part, "/kernel.bin");
-    uint32_t read;
-    uint8_t *kernel_buffer = kernel;
-    while ((read = FAT_read(&part, fd, MEMORY_LOAD_SIZE, kernel_load_buffer))) {
-        memcpy(kernel_buffer, kernel_load_buffer, read);
-        kernel_buffer += read;
+    kernel_start kernel_entry;
+    if (!ELF_read(&part, "/boot/kernel.elf", (void **) &kernel_entry)) {
+        printf("ELF read faild, halting...\n");
+        goto infinite_loop;
     }
-    FAT_close(fd);
 
     /* Hand over control to the kernel */
-    kernel_start ks = (kernel_start) kernel;
-    ks();
+    kernel_entry();
 
     /* Should never reach here */
     infinite_loop:

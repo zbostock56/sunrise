@@ -5,7 +5,7 @@ uint8_t disk_initialize(DISK *disk, uint8_t drive_number) {
   uint16_t cylinders = 0;
   uint16_t sectors = 0;
   uint16_t heads = 0;
-  if (!x86_disk_get_drive_params(disk->id, &drive_type, &cylinders, &sectors, &heads)) {
+  if (!x86_disk_get_drive_params(drive_number, &drive_type, &cylinders, &sectors, &heads)) {
     return 0;
   }
 

@@ -11,3 +11,5 @@ toolchain/*
 .vscode/*
 bochs_config
 *.ini
+.scon*
+build_helpers/__pycache__

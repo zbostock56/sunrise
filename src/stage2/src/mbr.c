@@ -1,6 +1,7 @@
 #include "../include/mbr.h"
 #include "../include/memory.h"
 #include "../include/stdio.h"
+#include "../include/utility.h"
 
 void MBR_detect_partition(PARTITION *part, DISK *disk, void *partition) {
     part->disk = disk;
@@ -14,6 +15,9 @@ void MBR_detect_partition(PARTITION *part, DISK *disk, void *partition) {
         part->partition_offset = entry->lba_start;
         part->partition_size = entry->size;
     }
+    #if DEBUG
+    print_partition_disk(part);
+    #endif
 }
 
 bool partition_read_sectors(PARTITION *part, uint32_t lba, uint8_t sectors, void *lower_dataout) {

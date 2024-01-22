@@ -13,14 +13,14 @@ bits 16
 ;
 
 section .fsjump
-  jmp short start 
-  nop
+  jmp short start                      ; Boot sector data must start three bytes from beginning
+  nop                                  ; So, this code doesn't matter
 
 section .fsheaders
-
+; Boot data bytes (59 in total)
 %if (FILESYSTEM == fat12) || (FILESYSTEM == fat16) || (FILESYSTEM == fat32)
   ; BIOS Parameter Block
-  bpb_oem:                      db '12345678'
+  bpb_oem:                      db "zbostock"
   bpb_bytes_per_sector:         dw 512
   bpb_sectors_per_cluster:      db 1
   bpb_reserved_sectors:         dw 1
@@ -36,7 +36,7 @@ section .fsheaders
 
   %if (FILESYSTEM == fat32)
     fat32_sectors_per_fat:      dd 0
-    fat32_flags:                dd 0
+    fat32_flags:                dw 0
     fat32_fat_version_number:   dw 0
     fat32_rootdir_cluster:      dd 0
     fat32_fsinfo_sector:        dw 0
@@ -50,7 +50,7 @@ section .fsheaders
   ebr_signiture:                db 29h             ; Serial number, value doesn't matter
   ebr_volume_id:                db 01h, 02h, 03h, 04h
   ebr_volume_label:             db 'sunrise_bl '   ; Must be 11 bytes
-  ebr_system_id:                db 'FAT12   '      ; Must be 8 bytes 
+  ebr_system_id:                db 'FAT32   '      ; Must be 8 bytes 
 %endif
 ; ------------------------------
 
@@ -62,7 +62,7 @@ section .entry
 start:
   ; Move partition entry from MBR to a different location so we don't
   ; overwrite it
-  mov ax, PARTITION_ENTRY_OFFSET
+  mov ax, PARTITION_ENTRY_SEGMENT
   mov es, ax
   mov di, PARTITION_ENTRY_OFFSET
   mov cx, 16
@@ -112,8 +112,7 @@ start:
   mov ax, STAGE2_LOAD_SEGMENT
   mov es, ax
 
-  mov bx, STAGE2_LOAD_SEGMENT
-
+  mov bx, STAGE2_LOAD_OFFSET
 .loop:
   mov eax, [si]
   add si, 4
@@ -144,8 +143,6 @@ start:
   mov es, ax
 
   jmp STAGE2_LOAD_SEGMENT:STAGE2_LOAD_OFFSET
-
-  jmp wait_key_and_reboot
 
   cli
   hlt
@@ -240,6 +237,7 @@ disk_read:
   push bx
   push cx
   push dx
+  push si
   push di
 
 
@@ -285,7 +283,9 @@ disk_read:
 
 .success:
   popa
+
   pop di
+  pop si
   pop dx
   pop cx
   pop bx
@@ -356,4 +356,4 @@ section .data
   stage2_location:           times 30 db 0
 
 section .bss
-buffer:
+buffer:                      resb 512

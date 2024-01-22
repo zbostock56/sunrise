@@ -1,5 +1,3 @@
-; Ending of the init and fini functions
-
 section .init
 	; gcc will nicely put the contents of crtend.o's .init section here.
 	pop ebp

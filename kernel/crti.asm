@@ -1,5 +1,3 @@
-; Start of the init and fini functions
-
 section .init
 global _init
 _init:
