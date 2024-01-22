@@ -2,7 +2,7 @@
   bits 32
   jmp word 18h:.pmode16                ; 1 - jump to 16-bit protected mode segment
 
-.pmode16
+.pmode16:
   bits 16
   ; 2 - disable protected mode bit in cr0
   mov eax, cr0 
