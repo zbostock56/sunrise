@@ -13,7 +13,7 @@ sudo apt install python3 python3-pip python3-sh python3-parted scons libguestfs-
 
 After both sets of packages are installed, simply run ```scons toolchain```. This will build the GCC toolchain in the project root directory.
 
-If issues arise building the GCC toolchain, the best place to consult is the [OsDev Wiki]("https://wiki.osdev.org/GCC_Cross-Compiler").
+If issues arise building the GCC toolchain, the best place to consult is the [OsDev Wiki](https://wiki.osdev.org/GCC_Cross-Compiler).
 
 After the toolchain is built, run ```scons``` to build the bootloader. After, to run the bootloader in QEMU, use the ```scons run``` command.
 
@@ -27,4 +27,4 @@ To clean the binaries and .obj files, run ```scons -c```.
 If errors arise during the build process if switching between building for floppy or disk, removing the ```./build``` folder should remedy these.
 
 ## Acknowledgments
-**sunrise** is based on the bootloader written for the [nanobyte_os]("https://github.com/nanobyte-dev/nanobyte_os") project and takes heavy inspiration on its implementation.
+**sunrise** is based on the bootloader written for the [nanobyte_os](https://github.com/nanobyte-dev/nanobyte_os) project and takes heavy inspiration on its implementation.
