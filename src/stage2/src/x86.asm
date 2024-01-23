@@ -247,3 +247,70 @@ x86_panic:
   ; Should never get to this point
   cli
   hlt
+
+;
+; int x86_E820GetNextBlock(E820_MEMORY_BLOCK *, uint32_t *);
+;
+
+E820_signature  equ 0x534D4150
+
+global x86_E820_get_next_block
+x86_E820_get_next_block:
+  bits 32
+  push ebp
+  mov ebp, esp
+
+  x86_enter_real_mode
+  bits 16
+
+  push ebx
+  push ecx
+  push edx
+  push esi
+  push edi
+  push ds
+  push es
+
+  ; Setup parameters
+  linear_to_seg_offset [bp + 8], es, edi, di     ; es-di pointer to struct
+
+  linear_to_seg_offset [bp + 12], ds, esi, si    ; ebx = pointer to continuation_id
+  mov ebx, ds:[si]
+
+  mov eax, 0xE820                                ; eax - function "pointer"
+  mov edx, E820_signature                         ; edx - signiture (magic number)
+  mov ecx, 24                                    ; ecx - size of structure to read
+
+  ; Call BIOS function
+  int 0x15
+
+  cmp eax, E820_signature
+  jne .error
+
+  ; Should be successful if BIOS supports this call
+.success:
+  mov eax, ecx                                   ; Return size of block
+  mov ds:[si], ebx                               ; Fill structure to return to caller
+  jmp .end
+
+.error:
+  mov eax, -1
+
+.end:
+
+  pop es
+  pop ds
+  pop edi
+  pop esi
+  pop edx
+  pop ecx
+  pop ebx
+
+  push eax
+  x86_enter_protected_mode
+  bits 32
+  pop eax
+
+  mov esp, ebp
+  pop ebp
+  ret

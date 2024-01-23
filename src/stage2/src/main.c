@@ -6,12 +6,14 @@
 #include "../include/memdefs.h"
 #include "../include/memory.h"
 #include "../include/elf.h"
-
+#include "../include/memdetect.h"
+#include <boot/bootparams.h>
 
 uint8_t *kernel_load_buffer = (uint8_t *) MEMORY_LOAD_KERNEL;
 uint8_t *kernel = (uint8_t *) MEMORY_KERNEL_ADDR;
+BOOT_PARAMS g_params;
 
-typedef void (* kernel_start)();
+typedef void (* kernel_start)(BOOT_PARAMS *);
 
 void __attribute__((cdecl)) start(uint16_t boot_drive, void *partition) {
 
@@ -33,15 +35,20 @@ void __attribute__((cdecl)) start(uint16_t boot_drive, void *partition) {
         printf("FAT initialization error!");
         goto infinite_loop;
     }
+
+    /* Pass boot parameters to kernel */
+    g_params.boot_device = boot_drive;
+    memory_detect(&g_params.memory);
+
     /* Load kernel into memory */
     kernel_start kernel_entry;
     if (!ELF_read(&part, "/boot/kernel.elf", (void **) &kernel_entry)) {
-        printf("ELF read faild, halting...\n");
+        printf("ELF read failed, halting...\n");
         goto infinite_loop;
     }
 
     /* Hand over control to the kernel */
-    kernel_entry();
+    kernel_entry(&g_params);
 
     /* Should never reach here */
     infinite_loop:

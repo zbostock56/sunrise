@@ -116,8 +116,6 @@ bool ELF_read(PARTITION *part, const char *path, void **entry_point) {
         return false;
     }
 
-    printf("Made it to line 44\n");
-
     *entry_point = (void *) header->program_entry_position;
 
     /* Load program header */
